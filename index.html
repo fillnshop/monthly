@@ -1,0 +1,511 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Fuel Reconciliation App with Gemini Analysis (Gallons)</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/flowbite/1.6.5/datepicker.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+        }
+        .tab-active {
+            border-color: #3b82f6;
+            color: #3b82f6;
+            background-color: #eff6ff;
+        }
+        .tab-inactive {
+            border-color: transparent;
+        }
+        .result-positive { color: #16a34a; }
+        .result-negative { color: #dc2626; }
+        .loader {
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #3498db;
+            border-radius: 50%;
+            width: 24px;
+            height: 24px;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        /* Modal styles */
+        .modal-backdrop {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.5);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 50;
+        }
+        .modal-content {
+            background-color: white;
+            padding: 2rem;
+            border-radius: 0.75rem;
+            max-width: 90%;
+            width: 500px;
+            box-shadow: 0 10px 15px -3px rgba(0,0,0,0.1), 0 4px 6px -2px rgba(0,0,0,0.05);
+            max-height: 80vh;
+            overflow-y: auto;
+        }
+        #analysis-report h2 { font-size: 1.125rem; font-weight: 600; margin-top: 1rem; margin-bottom: 0.5rem; }
+        #analysis-report ul { list-style-type: disc; margin-left: 1.5rem; margin-bottom: 1rem; }
+        #analysis-report li { margin-bottom: 0.25rem; }
+    </style>
+</head>
+<body class="bg-gray-100 min-h-screen flex items-center justify-center p-4">
+    <div class="w-full max-w-4xl mx-auto">
+        <div class="bg-white rounded-2xl shadow-lg p-6 sm:p-8">
+            <div class="flex flex-col md:flex-row justify-between items-start md:items-center mb-6">
+                <div>
+                    <h1 class="text-2xl sm:text-3xl font-bold text-gray-800">Fuel Reconciliation</h1>
+                    <p class="text-sm text-gray-500 mt-1">Calculate, track, and analyze fuel inventory with AI.</p>
+                </div>
+                <div class="text-xs text-gray-500 mt-4 md:mt-0 text-left md:text-right">
+                    <strong>User ID:</strong> <span id="userId" class="font-mono bg-gray-200 px-2 py-1 rounded"></span>
+                </div>
+            </div>
+
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                <!-- Left Side: Calculator -->
+                <div class="bg-gray-50 p-6 rounded-lg">
+                    <div class="mb-6">
+                        <div class="sm:hidden">
+                            <label for="tabs" class="sr-only">Select a fuel type</label>
+                            <select id="tabs-select" class="block w-full rounded-md border-gray-300 focus:border-blue-500 focus:ring-blue-500">
+                                <option>Unleaded</option>
+                                <option>Diesel</option>
+                                <option>Premium</option>
+                            </select>
+                        </div>
+                        <div class="hidden sm:block">
+                            <div class="border-b border-gray-200">
+                                <nav class="-mb-px flex space-x-4" aria-label="Tabs">
+                                    <button class="fuel-tab whitespace-nowrap py-3 px-1 border-b-2 font-medium text-sm tab-active" data-fuel="Unleaded">Unleaded</button>
+                                    <button class="fuel-tab whitespace-nowrap py-3 px-1 border-b-2 font-medium text-sm tab-inactive text-gray-500 hover:text-gray-700" data-fuel="Diesel">Diesel</button>
+                                    <button class="fuel-tab whitespace-nowrap py-3 px-1 border-b-2 font-medium text-sm tab-inactive text-gray-500 hover:text-gray-700" data-fuel="Premium">Premium</button>
+                                </nav>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Input Form -->
+                    <form id="reconciliation-form" class="space-y-4">
+                        <input type="hidden" id="fuelType" value="Unleaded">
+                        <div>
+                            <label for="opening-stock" class="block text-sm font-medium text-gray-700">Opening Stock (Gallons)</label>
+                            <input type="number" step="any" id="opening-stock" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500" placeholder="e.g., 2500" required>
+                        </div>
+                        <div>
+                            <label for="fuel-delivered" class="block text-sm font-medium text-gray-700">Fuel Delivered (Gallons)</label>
+                            <input type="number" step="any" id="fuel-delivered" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500" placeholder="e.g., 1500" required>
+                        </div>
+                        <div>
+                            <label for="fuel-sales" class="block text-sm font-medium text-gray-700">Fuel Sales (Gallons)</label>
+                            <input type="number" step="any" id="fuel-sales" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500" placeholder="e.g., 1200" required>
+                        </div>
+                        <div>
+                            <label for="closing-stock-physical" class="block text-sm font-medium text-gray-700">Closing Stock - Physical (Gallons)</label>
+                            <input type="number" step="any" id="closing-stock-physical" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500" placeholder="e.g., 2795" required>
+                        </div>
+                        <div>
+                            <label for="reconciliation-date" class="block text-sm font-medium text-gray-700">Reconciliation Date</label>
+                            <input type="date" id="reconciliation-date" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500" required>
+                        </div>
+                        <div class="flex items-center justify-between pt-4">
+                            <button type="submit" id="reconcile-btn" class="inline-flex justify-center rounded-md border border-transparent bg-blue-600 py-2 px-4 text-sm font-medium text-white shadow-sm hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2">Calculate</button>
+                            <button type="button" id="clear-form-btn" class="text-sm font-medium text-gray-600 hover:text-gray-800">Clear Form</button>
+                        </div>
+                    </form>
+                    
+                    <!-- Results Display -->
+                    <div id="results-container" class="mt-6 pt-6 border-t border-gray-200 space-y-3 hidden">
+                         <h3 class="text-lg font-medium text-gray-900">Reconciliation Results</h3>
+                         <div class="flex justify-between text-sm">
+                            <span class="text-gray-600">Total Available Fuel:</span>
+                            <span id="total-available" class="font-semibold text-gray-800"></span>
+                        </div>
+                        <div class="flex justify-between text-sm">
+                            <span class="text-gray-600">Closing Stock (Book):</span>
+                            <span id="closing-stock-book" class="font-semibold text-gray-800"></span>
+                        </div>
+                        <div class="flex justify-between text-lg font-bold">
+                            <span class="text-gray-800">Variance:</span>
+                            <span id="variance" class=""></span>
+                        </div>
+                        <div class="pt-4 flex justify-between items-center">
+                            <button id="analyze-variance-btn" class="hidden inline-flex items-center gap-x-2 rounded-md bg-purple-600 px-3.5 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-purple-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-purple-600">
+                                ✨ Analyze Variance
+                                <span id="analyze-loader" class="loader hidden"></span>
+                            </button>
+                            <button id="save-record-btn" class="inline-flex items-center gap-x-2 rounded-md bg-green-600 px-3.5 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-green-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-green-600">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-cloud-arrow-up-fill" viewBox="0 0 16 16"><path d="M8 2a5.53 5.53 0 0 0-3.594 1.342c-.766.66-1.321 1.52-1.464 2.383C1.266 6.095 0 7.555 0 9.318 0 11.366 1.708 13 3.781 13h8.906C14.502 13 16 11.57 16 9.773c0-1.636-1.242-2.969-2.834-3.194C12.923 3.999 10.69 2 8 2zm2.354 5.146a.5.5 0 0 1-.708.708L8.5 6.707V10.5a.5.5 0 0 1-1 0V6.707L6.354 7.854a.5.5 0 1 1-.708-.708l2-2a.5.5 0 0 1 .708 0l2 2z"/></svg>
+                                Save Record
+                                <span id="save-loader" class="loader hidden"></span>
+                            </button>
+                        </div>
+                    </div>
+                    <div id="message-box" class="mt-4 p-3 rounded-md text-sm text-center hidden"></div>
+                </div>
+
+                <!-- Right Side: History -->
+                <div class="bg-gray-50 p-6 rounded-lg">
+                    <h2 class="text-xl font-bold text-gray-800 mb-4">Reconciliation History</h2>
+                    <div id="history-loader" class="flex justify-center items-center h-48">
+                        <div class="loader"></div>
+                    </div>
+                    <div id="history-container" class="space-y-4 max-h-[600px] overflow-y-auto pr-2">
+                        <!-- History items will be injected here -->
+                    </div>
+                    <p id="no-history-message" class="text-center text-gray-500 py-16 hidden">No saved records found.</p>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Gemini Analysis Modal -->
+    <div id="analysis-modal" class="modal-backdrop hidden">
+        <div class="modal-content">
+            <div class="flex justify-between items-center mb-4">
+                <h2 class="text-xl font-bold text-gray-800">✨ Variance Analysis Report</h2>
+                <button id="close-modal-btn" class="text-gray-500 hover:text-gray-800">&times;</button>
+            </div>
+            <div id="analysis-report" class="text-gray-600 text-sm leading-relaxed">
+                <!-- Gemini response will be injected here -->
+            </div>
+        </div>
+    </div>
+
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, onAuthStateChanged, signInWithCustomToken } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, collection, addDoc, onSnapshot, query, doc, deleteDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        // --- Firebase Configuration ---
+        const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : { apiKey: "DEMO", authDomain: "DEMO", projectId: "DEMO" };
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-fuel-app';
+        
+        // --- Firebase Initialization ---
+        const app = initializeApp(firebaseConfig);
+        const auth = getAuth(app);
+        const db = getFirestore(app);
+
+        // --- Global State ---
+        let userId = null;
+        let currentResults = null;
+        let unsubscribeHistory = null;
+        
+        // --- UI Elements ---
+        const form = document.getElementById('reconciliation-form');
+        const resultsContainer = document.getElementById('results-container');
+        const userIdEl = document.getElementById('userId');
+        const historyContainer = document.getElementById('history-container');
+        const historyLoader = document.getElementById('history-loader');
+        const noHistoryMessage = document.getElementById('no-history-message');
+        const saveRecordBtn = document.getElementById('save-record-btn');
+        const saveLoader = document.getElementById('save-loader');
+        const messageBox = document.getElementById('message-box');
+        const analyzeVarianceBtn = document.getElementById('analyze-variance-btn');
+        const analyzeLoader = document.getElementById('analyze-loader');
+        const analysisModal = document.getElementById('analysis-modal');
+        const analysisReportEl = document.getElementById('analysis-report');
+        const closeModalBtn = document.getElementById('close-modal-btn');
+        
+        // --- Authentication ---
+        onAuthStateChanged(auth, async (user) => {
+            if (user) {
+                userId = user.uid;
+                userIdEl.textContent = userId;
+                listenToHistory();
+            } else {
+                 try {
+                    if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+                        await signInWithCustomToken(auth, __initial_auth_token);
+                    } else {
+                        await signInAnonymously(auth);
+                    }
+                } catch (error) {
+                    console.error("Authentication Error:", error);
+                    showMessage("Authentication failed. Please refresh.", 'error');
+                }
+            }
+        });
+
+        // --- Firestore Listener ---
+        function listenToHistory() {
+            if (unsubscribeHistory) unsubscribeHistory();
+            if (!userId) return;
+            
+            historyLoader.style.display = 'flex';
+            const recordsCol = collection(db, "artifacts", appId, "users", userId, "reconciliations");
+            const q = query(recordsCol);
+
+            unsubscribeHistory = onSnapshot(q, (snapshot) => {
+                historyLoader.style.display = 'none';
+                if (snapshot.empty) {
+                    noHistoryMessage.style.display = 'block';
+                    historyContainer.innerHTML = '';
+                } else {
+                    noHistoryMessage.style.display = 'none';
+                    const records = [];
+                    snapshot.forEach(doc => records.push({ id: doc.id, ...doc.data() }));
+                    records.sort((a, b) => {
+                        const dateA = a.reconciliationDate ? new Date(a.reconciliationDate) : new Date(a.createdAt?.toDate());
+                        const dateB = b.reconciliationDate ? new Date(b.reconciliationDate) : new Date(b.createdAt?.toDate());
+                        if (dateB - dateA !== 0) return dateB - dateA;
+                        return b.createdAt?.toDate() - a.createdAt?.toDate();
+                    });
+                    renderHistory(records);
+                }
+            }, (error) => {
+                console.error("Error fetching history:", error);
+                showMessage("Could not load history.", 'error');
+                historyLoader.style.display = 'none';
+            });
+        }
+        
+        // --- Rendering Logic ---
+        function renderHistory(records) {
+            historyContainer.innerHTML = '';
+            records.forEach(record => {
+                const varianceClass = record.variance > 0 ? 'text-red-600' : (record.variance < 0 ? 'text-green-600' : 'text-gray-700');
+                const varianceSign = record.variance > 0 ? '+' : '';
+                const recordDate = record.reconciliationDate ? new Date(record.reconciliationDate + 'T00:00:00') : new Date(record.createdAt.toDate());
+                const formattedDate = recordDate.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
+
+                const card = `
+                    <div class="bg-white p-4 rounded-lg shadow-sm border border-gray-200">
+                        <div class="flex justify-between items-start">
+                            <div><p class="font-bold text-blue-600">${record.fuelType}</p><p class="text-xs text-gray-500">${formattedDate}</p></div>
+                            <div class="text-right"><p class="font-bold text-lg ${varianceClass}">${varianceSign}${record.variance.toFixed(2)} Gal</p><p class="text-xs text-gray-500">Variance</p></div>
+                        </div>
+                        <div class="mt-3 pt-3 border-t border-gray-100 text-xs text-gray-600 grid grid-cols-2 gap-x-4 gap-y-1">
+                            <span>Open Stock:</span> <span class="text-right font-medium">${record.openingStock} Gal</span>
+                            <span>Delivered:</span> <span class="text-right font-medium">${record.fuelDelivered} Gal</span>
+                            <span>Sales:</span> <span class="text-right font-medium">${record.fuelSales} Gal</span>
+                            <span>Closing (Phys):</span> <span class="text-right font-medium">${record.closingStockPhysical} Gal</span>
+                        </div>
+                        <div class="text-right mt-2"><button data-id="${record.id}" class="delete-btn text-xs text-red-500 hover:text-red-700">&times; Delete</button></div>
+                    </div>`;
+                historyContainer.innerHTML += card;
+            });
+        }
+        
+        function showMessage(text, type = 'info') {
+            messageBox.textContent = text;
+            messageBox.className = 'mt-4 p-3 rounded-md text-sm text-center';
+            if (type === 'success') {
+                messageBox.classList.add('bg-green-100', 'text-green-800');
+            } else if (type === 'error') {
+                 messageBox.classList.add('bg-red-100', 'text-red-800');
+            }
+            messageBox.style.display = 'block';
+            setTimeout(() => { messageBox.style.display = 'none'; }, 4000);
+        }
+
+        // --- Event Handlers ---
+        form.addEventListener('submit', (e) => {
+            e.preventDefault();
+            const openingStock = parseFloat(document.getElementById('opening-stock').value);
+            const fuelDelivered = parseFloat(document.getElementById('fuel-delivered').value);
+            const fuelSales = parseFloat(document.getElementById('fuel-sales').value);
+            const closingStockPhysical = parseFloat(document.getElementById('closing-stock-physical').value);
+            const reconciliationDate = document.getElementById('reconciliation-date').value;
+
+            if (isNaN(openingStock) || isNaN(fuelDelivered) || isNaN(fuelSales) || isNaN(closingStockPhysical) || !reconciliationDate) {
+                showMessage("Please fill all fields correctly.", 'error');
+                return;
+            }
+
+            const totalAvailable = openingStock + fuelDelivered;
+            const closingStockBook = totalAvailable - fuelSales;
+            const variance = closingStockBook - closingStockPhysical;
+
+            document.getElementById('total-available').textContent = `${totalAvailable.toFixed(2)} Gal`;
+            document.getElementById('closing-stock-book').textContent = `${closingStockBook.toFixed(2)} Gal`;
+            const varianceEl = document.getElementById('variance');
+            varianceEl.textContent = `${variance.toFixed(2)} Gal`;
+            varianceEl.className = variance > 0 ? 'result-negative' : (variance < 0 ? 'result-positive' : '');
+            
+            currentResults = {
+                fuelType: document.getElementById('fuelType').value,
+                openingStock, fuelDelivered, fuelSales, closingStockPhysical, reconciliationDate, variance, createdAt: new Date()
+            };
+
+            resultsContainer.style.display = 'block';
+            if (Math.abs(variance) > 0.01) { // Show analysis button if there's any variance
+                analyzeVarianceBtn.style.display = 'inline-flex';
+            } else {
+                analyzeVarianceBtn.style.display = 'none';
+            }
+        });
+        
+        // --- Gemini API Feature ---
+        async function generateVarianceAnalysis() {
+            if (!currentResults) {
+                showMessage("Calculate a result first.", "error");
+                return;
+            }
+            analyzeLoader.style.display = 'inline-block';
+            analyzeVarianceBtn.disabled = true;
+            analysisReportEl.innerHTML = '<div class="flex justify-center p-8"><div class="loader"></div></div>';
+            analysisModal.style.display = 'flex';
+
+            const { fuelType, reconciliationDate, openingStock, fuelDelivered, fuelSales, closingStockPhysical, variance } = currentResults;
+            const varianceType = variance > 0 ? `shortage of ${variance.toFixed(2)} gallons` : `surplus of ${Math.abs(variance).toFixed(2)} gallons`;
+
+            const prompt = `
+                You are a professional Gas Station Operations Analyst. You are tasked with analyzing a fuel reconciliation report and providing actionable advice to a station manager. All measurements are in US Gallons.
+
+                Here is the data for a reconciliation:
+                - Fuel Type: ${fuelType}
+                - Reconciliation Date: ${reconciliationDate}
+                - Opening Stock: ${openingStock.toFixed(2)} Gallons
+                - Fuel Delivered: ${fuelDelivered.toFixed(2)} Gallons
+                - Fuel Sales (from pump meters): ${fuelSales.toFixed(2)} Gallons
+                - Physical Closing Stock (from tank dip): ${closingStockPhysical.toFixed(2)} Gallons
+                - **Calculated Variance:** ${variance.toFixed(2)} Gallons (This indicates a ${varianceType})
+
+                Based on this data, please provide a brief but comprehensive analysis report. Your report should be easy to understand and must include:
+
+                1.  **Summary of Findings:** A brief one-sentence summary of the situation.
+                2.  **Potential Causes:** A bulleted list of the most likely reasons for this discrepancy. If possible, categorize them (e.g., Operational Error, Equipment Malfunction, Environmental Factors, Potential Theft).
+                3.  **Actionable Checklist:** A numbered, step-by-step checklist for the station manager to investigate this variance. The steps should be practical and ordered logically.
+
+                Format your response in Markdown. Use headings for each section.
+            `;
+            
+            try {
+                const apiKey = ""; // The platform will inject the key
+                const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`;
+                const payload = { contents: [{ parts: [{ text: prompt }] }] };
+
+                const response = await fetch(apiUrl, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+
+                if (!response.ok) {
+                    throw new Error(`API Error: ${response.statusText}`);
+                }
+
+                const result = await response.json();
+                
+                if (result.candidates && result.candidates.length > 0) {
+                    const analysisText = result.candidates[0].content.parts[0].text;
+                    analysisReportEl.innerHTML = marked.parse(analysisText);
+                } else {
+                    throw new Error("No content received from Gemini.");
+                }
+
+            } catch (error) {
+                console.error("Gemini API Error:", error);
+                analysisReportEl.innerHTML = `<p class="text-red-500 text-center">Sorry, the analysis could not be generated at this time. Please check your network or try again later.<br><br><strong>Error:</strong> ${error.message}</p>`;
+            } finally {
+                analyzeLoader.style.display = 'none';
+                analyzeVarianceBtn.disabled = false;
+            }
+        }
+
+        analyzeVarianceBtn.addEventListener('click', generateVarianceAnalysis);
+        closeModalBtn.addEventListener('click', () => analysisModal.style.display = 'none');
+
+
+        saveRecordBtn.addEventListener('click', async () => {
+            if (!currentResults || !userId) {
+                showMessage("Calculate results first before saving.", 'error');
+                return;
+            };
+            saveLoader.style.display = 'inline-block';
+            saveRecordBtn.disabled = true;
+            try {
+                const recordsCol = collection(db, "artifacts", appId, "users", userId, "reconciliations");
+                await addDoc(recordsCol, currentResults);
+                showMessage("Record saved successfully!", 'success');
+                currentResults = null;
+                resultsContainer.style.display = 'none';
+                form.reset();
+                setupTabs();
+            } catch (error) {
+                console.error("Error saving record: ", error);
+                showMessage("Failed to save record. Please try again.", 'error');
+            } finally {
+                saveLoader.style.display = 'none';
+                saveRecordBtn.disabled = false;
+            }
+        });
+        
+        document.getElementById('clear-form-btn').addEventListener('click', () => {
+            form.reset();
+            resultsContainer.style.display = 'none';
+            analyzeVarianceBtn.style.display = 'none';
+            currentResults = null;
+            document.getElementById('reconciliation-date').value = new Date().toISOString().split('T')[0];
+        });
+
+        function setupTabs() {
+            const tabs = document.querySelectorAll('.fuel-tab');
+            const selectTab = document.getElementById('tabs-select');
+            const fuelTypeInput = document.getElementById('fuelType');
+            
+            function setActiveTab(fuelType) {
+                fuelTypeInput.value = fuelType;
+                tabs.forEach(t => {
+                    t.classList.toggle('tab-active', t.dataset.fuel === fuelType);
+                    t.classList.toggle('tab-inactive', t.dataset.fuel !== fuelType);
+                    t.classList.toggle('text-gray-500', t.dataset.fuel !== fuelType);
+                    t.classList.toggle('hover:text-gray-700', t.dataset.fuel !== fuelType);
+                });
+                selectTab.value = fuelType;
+                form.reset();
+                document.getElementById('reconciliation-date').value = new Date().toISOString().split('T')[0];
+                resultsContainer.style.display = 'none';
+                analyzeVarianceBtn.style.display = 'none';
+                currentResults = null;
+            }
+            tabs.forEach(tab => tab.addEventListener('click', () => setActiveTab(tab.dataset.fuel)));
+            selectTab.addEventListener('change', () => setActiveTab(selectTab.value));
+            setActiveTab('Unleaded');
+        }
+
+        historyContainer.addEventListener('click', async (e) => {
+            if (e.target.classList.contains('delete-btn')) {
+                const recordId = e.target.dataset.id;
+                 const customConfirmModal = (message) => {
+                    return new Promise((resolve) => {
+                        // For this example, we'll use the browser's confirm, but a custom modal is better UI
+                        const confirmed = window.confirm(message);
+                        resolve(confirmed);
+                    });
+                };
+                if (await customConfirmModal('Are you sure you want to delete this record?')) {
+                     try {
+                        const recordRef = doc(db, "artifacts", appId, "users", userId, "reconciliations", recordId);
+                        await deleteDoc(recordRef);
+                        showMessage("Record deleted.", "success");
+                    } catch (error) {
+                        console.error("Error deleting record:", error);
+                        showMessage("Failed to delete record.", "error");
+                    }
+                }
+            }
+        });
+
+        // --- Initial Page Load Setup ---
+        document.addEventListener('DOMContentLoaded', () => {
+            document.getElementById('reconciliation-date').value = new Date().toISOString().split('T')[0];
+            setupTabs();
+        });
+    </script>
+</body>
+</html>
